@@ -244,6 +244,7 @@ function addShiftRecord(textFile, shiftObj) {
     return newShift;
 }
 
+
 // ============================================================
 // Function 6: setBonus(textFile, driverID, date, newValue)
 // textFile: (typeof string) path to shifts text file
@@ -253,7 +254,39 @@ function addShiftRecord(textFile, shiftObj) {
 // Returns: nothing (void)
 // ============================================================
 function setBonus(textFile, driverID, date, newValue) {
-    // TODO: Implement this function
+    var fileContent = "";
+    try {
+        fileContent = fs.readFileSync(textFile, "utf8");
+    } catch (err) {
+        return; // File doesn't exist
+    }
+
+    var lines = fileContent.split("\n");
+    // Remove any trailing empty line temporarily
+    var hasTrailingNewline = false;
+    if (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+        lines.pop();
+        hasTrailingNewline = true;
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+        var parts = lines[i].split(",");
+        if (parts.length >= 10) {
+            // Trim inputs to ensure clean matching
+            var currDriverID = parts[0].trim();
+            var currDate = parts[2].trim();
+
+            if (currDriverID === driverID.trim() && currDate === date.trim()) {
+                // The 10th column (index 9) is hasBonus
+                parts[9] = newValue.toString(); // Output "true" or "false"
+                lines[i] = parts.join(",");
+                break; // Assuming only one valid entry matching driverID and date
+            }
+        }
+    }
+
+    // Add trailing newline back if it originally existed or just append one
+    fs.writeFileSync(textFile, lines.join("\n") + "\n", "utf8");
 }
 
 // ============================================================
@@ -264,7 +297,60 @@ function setBonus(textFile, driverID, date, newValue) {
 // Returns: number (-1 if driverID not found)
 // ============================================================
 function countBonusPerMonth(textFile, driverID, month) {
-    // TODO: Implement this function
+    if (!month || month.trim() === "") {
+        return -1;
+    }
+
+    // Standardize month to an integer for safe comparison (handles "04" vs "4")
+    var targetMonthInt = parseInt(month, 10);
+    if (isNaN(targetMonthInt) || targetMonthInt < 1 || targetMonthInt > 12) {
+        return -1; // Invalid month
+    }
+
+    var fileContent = "";
+    try {
+        fileContent = fs.readFileSync(textFile, "utf8");
+    } catch (err) {
+        return -1; // File doesn't exist
+    }
+
+    var lines = fileContent.split("\n");
+
+    var driverExists = false;
+    var bonusCount = 0;
+
+    for (var i = 0; i < lines.length; i++) {
+        var strLine = lines[i].trim();
+        if (strLine === "") continue;
+
+        var parts = strLine.split(",");
+        if (parts.length >= 10) {
+            var currDriverID = parts[0].trim();
+
+            if (currDriverID === driverID.trim()) {
+                driverExists = true;
+
+                var currDateStr = parts[2].trim();
+                var dateParts = currDateStr.split('-');
+                if (dateParts.length >= 2) {
+                    var currMonthInt = parseInt(dateParts[1], 10);
+
+                    if (currMonthInt === targetMonthInt) {
+                        var hasBonusStr = parts[9].trim().toLowerCase();
+                        if (hasBonusStr === "true") {
+                            bonusCount++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!driverExists) {
+        return -1;
+    }
+
+    return bonusCount;
 }
 
 // ============================================================
@@ -275,7 +361,94 @@ function countBonusPerMonth(textFile, driverID, month) {
 // Returns: string formatted as hhh:mm:ss
 // ============================================================
 function getTotalActiveHoursPerMonth(textFile, driverID, month) {
-    // TODO: Implement this function
+    var fileContent = "";
+    try {
+        fileContent = fs.readFileSync(textFile, "utf8");
+    } catch (err) {
+        return "0:00:00"; // File doesn't exist
+    }
+
+    var lines = fileContent.split("\n");
+    var totalActiveSeconds = 0;
+
+    // Ensure month compares consistently
+    var targetMonthInt = parseInt(month, 10);
+
+    for (var i = 0; i < lines.length; i++) {
+        var strLine = lines[i].trim();
+        if (strLine === "") continue;
+
+        var parts = strLine.split(",");
+        if (parts.length >= 10) {
+            var currDriverID = parts[0].trim();
+            if (currDriverID === driverID.trim()) {
+                var currDateStr = parts[2].trim();
+                var dateParts = currDateStr.split('-');
+                if (dateParts.length >= 2) {
+                    var currMonthInt = parseInt(dateParts[1], 10);
+
+                    if (currMonthInt === targetMonthInt) {
+                        // The activeTime is stored at index 7 (shiftDuration is 5, idleTime is 6, activeTime is 7)
+                        var activeTimeStr = parts[7].trim();
+                        totalActiveSeconds += durationToSeconds(activeTimeStr);
+                    }
+                }
+            }
+        }
+    }
+
+    return formatLongTime(totalActiveSeconds);
+}
+
+// Helper to format total seconds into hhh:mm:ss specifically for negative/large hours
+function formatLongTime(totalSeconds) {
+    var isNegative = totalSeconds < 0;
+    if (isNegative) {
+        totalSeconds = -totalSeconds;
+    }
+
+    var h = Math.floor(totalSeconds / 3600);
+    var m = Math.floor((totalSeconds % 3600) / 60);
+    var s = totalSeconds % 60;
+
+    var mStr = m.toString();
+    if (mStr.length < 2) {
+        mStr = "0" + mStr;
+    }
+
+    var sStr = s.toString();
+    if (sStr.length < 2) {
+        sStr = "0" + sStr;
+    }
+
+    var sign = isNegative ? "-" : "";
+    return sign + h + ":" + mStr + ":" + sStr;
+}
+
+// Helper to get driver's day off from rateFile
+function getDriverDayOff(rateFile, driverID) {
+    try {
+        var rateContent = fs.readFileSync(rateFile, "utf8");
+        var lines = rateContent.split("\n");
+        for (var i = 0; i < lines.length; i++) {
+            var parts = lines[i].split(",");
+            if (parts.length >= 2) {
+                if (parts[0].trim() === driverID.trim()) {
+                    return parts[1].trim().toLowerCase();
+                }
+            }
+        }
+    } catch (e) {
+        // Ignored
+    }
+    return "";
+}
+
+// Helper to map 0-6 to day strings
+function getDayOfWeekString(dateString) {
+    var d = new Date(dateString);
+    var days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    return days[d.getDay()]; // Note: getDay() uses local timezone which might slightly be a risk if dateString is just yyyy-mm-dd. Let's append T00:00:00 to be safe.
 }
 
 // ============================================================
@@ -288,7 +461,66 @@ function getTotalActiveHoursPerMonth(textFile, driverID, month) {
 // Returns: string formatted as hhh:mm:ss
 // ============================================================
 function getRequiredHoursPerMonth(textFile, rateFile, bonusCount, driverID, month) {
-    // TODO: Implement this function
+    var dayOff = getDriverDayOff(rateFile, driverID);
+
+    var shiftContent = "";
+    try {
+        shiftContent = fs.readFileSync(textFile, "utf8");
+    } catch (e) {
+        return "0:00:00";
+    }
+
+    var lines = shiftContent.split("\n");
+    var totalRequiredSeconds = 0;
+
+    // Track unique dates worked by this driver to avoid double counting if duplicate entries exist (though assignment says they shouldn't)
+    var processedDates = {};
+
+    for (var i = 0; i < lines.length; i++) {
+        var strLine = lines[i].trim();
+        if (strLine === "") continue;
+
+        var parts = strLine.split(",");
+        if (parts.length >= 10) {
+            var currDriverID = parts[0].trim();
+            if (currDriverID === driverID.trim()) {
+                var currDateStr = parts[2].trim();
+                var dateParts = currDateStr.split('-');
+                if (dateParts.length >= 2) {
+                    var currMonth = parseInt(dateParts[1], 10);
+
+                    if (currMonth === parseInt(month, 10)) {
+                        // Skip if already processed
+                        if (processedDates[currDateStr]) continue;
+                        processedDates[currDateStr] = true;
+
+                        // Check if day off
+                        // For safety parsing local midnight:
+                        var d = new Date(currDateStr + "T00:00:00");
+                        var days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+                        var dayOfWeek = days[d.getDay()];
+
+                        if (dayOfWeek === dayOff) {
+                            continue;
+                        }
+
+                        // Add daily quota
+                        if (isEidPeriod(currDateStr)) {
+                            totalRequiredSeconds += (6 * 3600);
+                        } else {
+                            totalRequiredSeconds += (8 * 3600) + (24 * 60);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Deduct bonuses
+    var bonusDeductionSeconds = bonusCount * 2 * 3600;
+    totalRequiredSeconds -= bonusDeductionSeconds;
+
+    return formatLongTime(totalRequiredSeconds);
 }
 
 // ============================================================
@@ -300,7 +532,67 @@ function getRequiredHoursPerMonth(textFile, rateFile, bonusCount, driverID, mont
 // Returns: integer (net pay)
 // ============================================================
 function getNetPay(driverID, actualHours, requiredHours, rateFile) {
-    // TODO: Implement this function
+    var basePay = 0;
+    var tier = 0; 
+
+    // 1. Fetch from rate file (driverID, dayOff, basePay, tier)
+    try {
+        var rateContent = fs.readFileSync(rateFile, "utf8");
+        var lines = rateContent.split("\n");
+        for (var i = 0; i < lines.length; i++) {
+            var parts = lines[i].split(",");
+            if (parts.length >= 4) {
+                if (parts[0].trim() === driverID.trim()) {
+                    basePay = parseInt(parts[2].trim(), 10);
+                    tier = parseInt(parts[3].trim(), 10);
+                    break;
+                }
+            }
+        }
+    } catch (e) {
+        return 0; // If file breaks, safe return
+    }
+
+    // 2. Calculate tier allowance
+    var allowedMissingHours = 0;
+    if (tier === 1) {
+        allowedMissingHours = 50;
+    } else if (tier === 2) {
+        allowedMissingHours = 20;
+    } else if (tier === 3) {
+        allowedMissingHours = 10;
+    } else if (tier === 4) {
+        allowedMissingHours = 3;
+    }
+
+    var allowedMissingSeconds = allowedMissingHours * 3600;
+
+    // 3. Compare required vs actual
+    var reqSec = durationToSeconds(requiredHours);
+    var actSec = durationToSeconds(actualHours);
+
+    if (actSec >= reqSec) {
+        return basePay; // No deductions if met or exceeded
+    }
+
+    // 4. Calculate deduction
+    var rawMissingSeconds = reqSec - actSec;
+    var billableMissingSeconds = rawMissingSeconds - allowedMissingSeconds;
+
+    if (billableMissingSeconds <= 0) {
+        return basePay; // Allowance covered the deficit
+    }
+
+
+    var billableMissingHours = Math.floor(billableMissingSeconds / 3600);
+
+    // deductionRatePerHour = floor(basePay / 185)
+    var deductionRatePerHour = Math.floor(basePay / 185);
+
+    var salaryDeduction = billableMissingHours * deductionRatePerHour;
+    var netPay = basePay - salaryDeduction;
+
+    return netPay;
 }
 
 module.exports = {
